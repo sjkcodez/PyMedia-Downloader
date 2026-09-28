@@ -1,6 +1,8 @@
 /* ============================================================
    PyMedia Downloader — dashboard logic
    Single-button flow: server download → auto-save to device
+   Auto-save triggers ONLY for jobs created in this tab, and only
+   after confirming the file still exists on the server.
    ============================================================ */
 (function () {
   "use strict";
@@ -99,6 +101,36 @@
 
   fillOptions($("batch-quality-select"), $("batch-format-select"), currentBatchKind);
 
+  // ============================================================
+  // Session-scoped state (survives page reloads, cleared on tab close)
+  // ============================================================
+  const SESSION_KEY = "pmd_pending_autosave";
+  const autoSavedJobs = new Set(readPending());   // jobs already saved this tab
+  const pendingAutoSave = new Set(readPending()); // job ids we're still waiting for
+
+  function readPending() {
+    try {
+      return JSON.parse(sessionStorage.getItem(SESSION_KEY) || "[]");
+    } catch { return []; }
+  }
+
+  function writePending() {
+    try {
+      sessionStorage.setItem(SESSION_KEY, JSON.stringify(Array.from(pendingAutoSave)));
+    } catch {}
+  }
+
+  function markPending(id) {
+    pendingAutoSave.add(id);
+    writePending();
+  }
+
+  function markAutoSaved(id) {
+    autoSavedJobs.add(id);
+    pendingAutoSave.delete(id);
+    writePending();
+  }
+
   // ---------- Analyze single ----------
   const analyzeBtn = $("analyze-btn");
   const singleUrl = $("single-url");
@@ -196,7 +228,10 @@
       const data = await res.json();
       if (!data.ok) throw new Error(data.error || "Failed to start download");
 
-      data.jobs.forEach(j => watchJob(j.id));
+      data.jobs.forEach(j => {
+        markPending(j.id);   // <-- only these jobs will auto-save
+        watchJob(j.id);
+      });
     } catch (err) {
       alert("Error: " + err.message);
     } finally {
@@ -238,7 +273,10 @@
       const data = await res.json();
       if (!data.ok) throw new Error(data.error || "Failed to queue downloads");
 
-      data.jobs.forEach(j => watchJob(j.id));
+      data.jobs.forEach(j => {
+        markPending(j.id);
+        watchJob(j.id);
+      });
       $("batch-urls").value = "";
     } catch (err) {
       alert("Error: " + err.message);
@@ -248,31 +286,40 @@
     }
   });
 
-  // ---------- Live job tracking with auto-save ----------
+  // ---------- Live job tracking with guarded auto-save ----------
   const jobsList = $("jobs-list");
-  const activeJobs = new Map();     // id → timeout handle
-  const autoSavedJobs = new Set();  // ids we've already triggered
+  const activeTimers = new Map();
 
   function ensureJobsContainer() {
     const emptyMsg = jobsList.querySelector(".empty");
     if (emptyMsg) emptyMsg.remove();
   }
 
-  // ---------- Trigger browser download (auto-save) ----------
-  function triggerBrowserDownload(job) {
-    if (!job.file_path) return false;
-    const url = "/download?path=" + encodeURIComponent(job.file_path);
+  // ---------- Server-side existence check ----------
+  async function fileExistsOnServer(filePath) {
+    try {
+      const res = await fetch(
+        "/api/file-exists?path=" + encodeURIComponent(filePath),
+      );
+      if (!res.ok) return false;
+      const data = await res.json();
+      return !!data.exists;
+    } catch {
+      return false;
+    }
+  }
 
-    // Create a hidden anchor and click it. This starts the browser's
-    // native "Save file" flow without navigating away from the page.
+  // ---------- Trigger the browser's save flow ----------
+  function triggerBrowserDownload(job) {
+    if (!job.file_path) return;
+    const url = "/download?path=" + encodeURIComponent(job.file_path);
     const a = document.createElement("a");
     a.href = url;
     a.style.display = "none";
-    a.download = "";      // let the server's Content-Disposition decide name
+    a.download = "";
     document.body.appendChild(a);
     a.click();
     setTimeout(() => a.remove(), 500);
-    return true;
   }
 
   function renderJob(job) {
@@ -306,45 +353,57 @@
     metaEl.textContent = `${job.kind} · ${job.format || "auto"} · ${job.quality || ""}`;
     fillEl.style.width = (job.percent || 0) + "%";
 
-    // ---------- Label ----------
+    card.classList.toggle("done", job.status === "done");
+    card.classList.toggle("error", job.status === "error");
+
+    // ---------- Auto-save ----------
+    const shouldAutoSave =
+      job.status === "done" &&
+      job.file_path &&
+      pendingAutoSave.has(job.id) &&
+      !autoSavedJobs.has(job.id);
+
+    if (shouldAutoSave) {
+      stateEl.textContent = "Verifying file…";
+      speedEl.textContent = "";
+
+      fileExistsOnServer(job.file_path).then((exists) => {
+        if (exists) {
+          markAutoSaved(job.id);
+          stateEl.textContent = "Saving to your device…";
+          triggerBrowserDownload(job);
+
+          setTimeout(() => {
+            stateEl.textContent = "✓ Saved to your device";
+            card.classList.add("done");
+          }, 900);
+        } else {
+          // File already gone — don't trigger a browser download
+          markAutoSaved(job.id);
+          stateEl.textContent = "File expired on server (auto-deleted)";
+          speedEl.textContent = "";
+        }
+      });
+
+      return;
+    }
+
+    // ---------- Normal status text ----------
     const labels = {
       queued:       "Queued",
       analyzing:    "Analyzing…",
       downloading:  `Downloading — ${job.percent || 0}%`,
       processing:   "Merging…",
-      done:         "✓ Saved to your device",
+      done:         "✓ Done",
       error:        "✕ Error",
     };
-
-    card.classList.toggle("done", job.status === "done");
-    card.classList.toggle("error", job.status === "error");
-
-    // ---------- Auto-save on completion ----------
-    if (job.status === "done" && job.file_path && !autoSavedJobs.has(job.id)) {
-      autoSavedJobs.add(job.id);
-
-      // Show "Saving to your device…" while the browser starts the download
-      stateEl.textContent = "Saving to your device…";
-      speedEl.textContent = "";
-
-      const ok = triggerBrowserDownload(job);
-
-      setTimeout(() => {
-        if (ok) {
-          stateEl.textContent = "✓ Saved to your device";
-          card.classList.add("done");
-        } else {
-          stateEl.textContent = "Done (file ready on server)";
-        }
-      }, 900);
-    } else {
-      stateEl.textContent = labels[job.status] || job.status;
-      speedEl.textContent = job.speed || "";
-    }
 
     if (job.status === "error") {
       stateEl.textContent = "✕ " + (job.error || "Error");
       speedEl.textContent = "";
+    } else {
+      stateEl.textContent = labels[job.status] || job.status;
+      speedEl.textContent = job.speed || "";
     }
   }
 
@@ -357,7 +416,7 @@
   }
 
   function watchJob(id) {
-    if (activeJobs.has(id)) return;
+    if (activeTimers.has(id)) return;
 
     const tick = async () => {
       const job = await pollJob(id);
@@ -365,15 +424,18 @@
       renderJob(job);
 
       if (job.status === "done" || job.status === "error") {
-        activeJobs.delete(id);
+        activeTimers.delete(id);
         return;
       }
-      activeJobs.set(id, setTimeout(tick, 1000));
+      activeTimers.set(id, setTimeout(tick, 1000));
     };
-    activeJobs.set(id, setTimeout(tick, 400));
+    activeTimers.set(id, setTimeout(tick, 400));
   }
 
   // ---------- Restore recent jobs on load ----------
+  // Jobs restored from the server are NEVER auto-saved (their files may
+  // already be gone). They only render — the user can click Save to
+  // download them again if the file still exists.
   (async function resumeJobs() {
     try {
       const res = await fetch("/api/jobs");

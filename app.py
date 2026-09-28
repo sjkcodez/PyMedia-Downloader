@@ -358,6 +358,25 @@ def download_file():
 
 
 # ============================================================
+# File existence check
+#   Used by the front-end before triggering the auto-save,
+#   to avoid the "download.htm" trap when a file has expired.
+# ============================================================
+@app.route("/api/file-exists")
+def api_file_exists():
+    """Return {"exists": bool} for a given downloads/ path."""
+    rel = (request.args.get("path") or "").strip()
+    if not rel:
+        return jsonify({"exists": False})
+    try:
+        p = Path(rel).resolve()
+        p.relative_to(DOWNLOADS_DIR.resolve())
+    except (ValueError, OSError):
+        return jsonify({"exists": False})
+    return jsonify({"exists": p.is_file()})
+
+
+# ============================================================
 # Direct streaming proxy
 #   Pipes bytes straight through — nothing saved on disk.
 #   Used for direct file URLs (MP4, MP3, images).
