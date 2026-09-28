@@ -1,5 +1,6 @@
 /* ============================================================
    PyMedia Downloader — dashboard logic
+   Single-button flow: server download → auto-save to device
    ============================================================ */
 (function () {
   "use strict";
@@ -117,7 +118,6 @@
     analyzeBtn.textContent = "Analyzing…";
 
     try {
-      // Detect image URL client-side as a shortcut
       const isImage = /\.(jpg|jpeg|png|gif|webp|bmp|tiff|svg|avif|heic|heif)(\?|$)/i.test(url);
 
       if (isImage) {
@@ -129,7 +129,6 @@
         previewEl.classList.remove("hidden");
         optionsEl.classList.remove("hidden");
 
-        // Switch to image mode
         kindGroup.querySelectorAll(".seg").forEach(b => {
           b.classList.toggle("active", b.dataset.kind === "image");
         });
@@ -197,7 +196,6 @@
       const data = await res.json();
       if (!data.ok) throw new Error(data.error || "Failed to start download");
 
-      // Watch the new job
       data.jobs.forEach(j => watchJob(j.id));
     } catch (err) {
       alert("Error: " + err.message);
@@ -250,13 +248,31 @@
     }
   });
 
-  // ---------- Live job tracking ----------
+  // ---------- Live job tracking with auto-save ----------
   const jobsList = $("jobs-list");
-  const activeJobs = new Map();
+  const activeJobs = new Map();     // id → timeout handle
+  const autoSavedJobs = new Set();  // ids we've already triggered
 
   function ensureJobsContainer() {
     const emptyMsg = jobsList.querySelector(".empty");
     if (emptyMsg) emptyMsg.remove();
+  }
+
+  // ---------- Trigger browser download (auto-save) ----------
+  function triggerBrowserDownload(job) {
+    if (!job.file_path) return false;
+    const url = "/download?path=" + encodeURIComponent(job.file_path);
+
+    // Create a hidden anchor and click it. This starts the browser's
+    // native "Save file" flow without navigating away from the page.
+    const a = document.createElement("a");
+    a.href = url;
+    a.style.display = "none";
+    a.download = "";      // let the server's Content-Disposition decide name
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(() => a.remove(), 500);
+    return true;
   }
 
   function renderJob(job) {
@@ -275,7 +291,6 @@
             <span class="speed" data-role="speed"></span>
           </div>
         </div>
-        <div class="job-actions" data-role="actions"></div>
       `;
       jobsList.prepend(card);
       ensureJobsContainer();
@@ -286,33 +301,50 @@
     const fillEl  = card.querySelector('[data-role="fill"]');
     const stateEl = card.querySelector('[data-role="state"]');
     const speedEl = card.querySelector('[data-role="speed"]');
-    const actions = card.querySelector('[data-role="actions"]');
 
     titleEl.textContent = job.title || job.url;
     metaEl.textContent = `${job.kind} · ${job.format || "auto"} · ${job.quality || ""}`;
     fillEl.style.width = (job.percent || 0) + "%";
 
+    // ---------- Label ----------
     const labels = {
       queued:       "Queued",
       analyzing:    "Analyzing…",
       downloading:  `Downloading — ${job.percent || 0}%`,
-      processing:   "Processing…",
-      done:         "✓ Done",
+      processing:   "Merging…",
+      done:         "✓ Saved to your device",
       error:        "✕ Error",
     };
-    stateEl.textContent = labels[job.status] || job.status;
-    speedEl.textContent = job.speed || "";
 
     card.classList.toggle("done", job.status === "done");
     card.classList.toggle("error", job.status === "error");
 
-    if (job.status === "done" && job.file_path) {
-      const url = "/download?path=" + encodeURIComponent(job.file_path);
-      actions.innerHTML = `<a class="btn btn-small btn-amber" href="${url}">Save</a>`;
-    } else if (job.status === "error") {
-      actions.innerHTML = `<button class="btn btn-small btn-danger-soft" onclick="this.closest('.job-card').remove()">Dismiss</button>`;
+    // ---------- Auto-save on completion ----------
+    if (job.status === "done" && job.file_path && !autoSavedJobs.has(job.id)) {
+      autoSavedJobs.add(job.id);
+
+      // Show "Saving to your device…" while the browser starts the download
+      stateEl.textContent = "Saving to your device…";
+      speedEl.textContent = "";
+
+      const ok = triggerBrowserDownload(job);
+
+      setTimeout(() => {
+        if (ok) {
+          stateEl.textContent = "✓ Saved to your device";
+          card.classList.add("done");
+        } else {
+          stateEl.textContent = "Done (file ready on server)";
+        }
+      }, 900);
     } else {
-      actions.innerHTML = "";
+      stateEl.textContent = labels[job.status] || job.status;
+      speedEl.textContent = job.speed || "";
+    }
+
+    if (job.status === "error") {
+      stateEl.textContent = "✕ " + (job.error || "Error");
+      speedEl.textContent = "";
     }
   }
 

@@ -1,11 +1,19 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""PyMedia Downloader — Web GUI server with admin login and analytics."""
+"""PyMedia Downloader — Web GUI server with admin login, analytics, and auto-cleanup.
+
+Cleanup:
+    A background daemon thread wakes every 30 minutes and deletes files in
+    downloads/videos/, downloads/audio/, and downloads/images/ that are
+    older than 30 minutes. This keeps the disk from filling up as users
+    download and auto-save files to their devices.
+"""
 import os
 import io
 import time
 import uuid
 import secrets
+import shutil
 import threading
 import traceback
 from functools import wraps
@@ -48,6 +56,52 @@ app.config.update(
     SESSION_COOKIE_SECURE=os.environ.get("PMD_FORCE_HTTPS", "0") == "1",
     PERMANENT_SESSION_LIFETIME=timedelta(hours=12),
 )
+
+
+# ============================================================
+# Cleanup thread — deletes old files from downloads/
+# ============================================================
+CLEANUP_INTERVAL_SECONDS = 30 * 60    # run every 30 minutes
+CLEANUP_MAX_AGE_SECONDS  = 30 * 60    # delete files older than 30 minutes
+
+
+def _delete_old_downloads():
+    """Delete files in downloads/{videos,audio,images}/ older than the cutoff."""
+    cutoff = time.time() - CLEANUP_MAX_AGE_SECONDS
+    deleted = 0
+    for folder in (VIDEOS_DIR, AUDIO_DIR, IMAGES_DIR):
+        if not folder.exists():
+            continue
+        for f in folder.rglob("*"):
+            try:
+                if f.is_file() and f.stat().st_mtime < cutoff:
+                    f.unlink()
+                    deleted += 1
+            except Exception:
+                continue
+    return deleted
+
+
+def cleanup_loop():
+    time.sleep(10)   # brief startup grace
+    while True:
+        try:
+            n = _delete_old_downloads()
+            if n:
+                print(f"[cleanup] deleted {n} old download file(s)", flush=True)
+        except Exception:
+            traceback.print_exc()
+        time.sleep(CLEANUP_INTERVAL_SECONDS)
+
+
+def start_cleanup_thread():
+    t = threading.Thread(target=cleanup_loop, name="cleanup", daemon=True)
+    t.start()
+    return t
+
+
+# Start at import time so it runs under Gunicorn too (not only __main__)
+start_cleanup_thread()
 
 
 # ------------------------------------------------------------------
@@ -145,7 +199,6 @@ def _analytics_before():
     is_new = not sid
     if is_new:
         sid = uuid.uuid4().hex[:16]
-    g_session_id = sid
     app.config["_current_session"] = sid
     app.config["_is_new_session"] = is_new
 
@@ -306,7 +359,7 @@ def download_file():
 
 # ============================================================
 # Direct streaming proxy
-#   Bypasses the server's disk — pipes bytes straight through.
+#   Pipes bytes straight through — nothing saved on disk.
 #   Used for direct file URLs (MP4, MP3, images).
 # ============================================================
 @app.route("/api/stream")
@@ -326,7 +379,6 @@ def api_stream():
     except requests.RequestException as e:
         abort(502, f"Upstream error: {e}")
 
-    # Determine filename from URL or Content-Disposition
     filename = suggested
     if not filename:
         cd = upstream.headers.get("Content-Disposition", "")
@@ -339,7 +391,6 @@ def api_stream():
     content_type = upstream.headers.get("Content-Type", "application/octet-stream")
     content_length = upstream.headers.get("Content-Length", "")
 
-    # Log it
     try:
         history.add(
             url=url, title=filename, channel="", kind=_guess_kind(filename),
@@ -447,9 +498,11 @@ if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     print("=" * 60)
     print("  PyMedia Downloader — Web GUI")
-    print(f"  Open:   http://127.0.0.1:{port}")
-    print(f"  Admin:  http://127.0.0.1:{port}/admin")
-    print(f"  ffmpeg: {'available' if ffmpeg_available() else 'MISSING'}")
-    print(f"  Admin pw: {'set' if ADMIN_ENABLED else 'NOT SET (admin disabled)'}")
+    print(f"  Open:      http://127.0.0.1:{port}")
+    print(f"  Admin:     http://127.0.0.1:{port}/admin")
+    print(f"  ffmpeg:    {'available' if ffmpeg_available() else 'MISSING'}")
+    print(f"  Admin pw:  {'set' if ADMIN_ENABLED else 'NOT SET (admin disabled)'}")
+    print(f"  Cleanup:   every {CLEANUP_INTERVAL_SECONDS // 60} min "
+          f"(files > {CLEANUP_MAX_AGE_SECONDS // 60} min old)")
     print("=" * 60)
     serve(app, host="0.0.0.0", port=port, threads=8, channel_timeout=600)
