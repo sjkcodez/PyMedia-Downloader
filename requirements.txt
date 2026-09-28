@@ -1,0 +1,12 @@
+# ---------- Web ----------
+Flask>=3.0.0
+Werkzeug>=3.0.0
+gunicorn>=21.2.0
+waitress>=3.0.0
+
+# ---------- Downloading ----------
+yt-dlp>=2024.10.0
+requests>=2.31.0
+
+# ---------- Images ----------
+Pillow>=10.0.0

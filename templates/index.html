@@ -1,0 +1,116 @@
+{% extends "base.html" %}
+{% block title %}PyMedia Downloader — Home{% endblock %}
+
+{% block content %}
+<section class="hero">
+  <h1>Download anything. From anywhere.</h1>
+  <p>Paste a link from YouTube, TikTok, Instagram, X, Facebook, Vimeo, Reddit, SoundCloud — or a direct image URL.</p>
+</section>
+
+<div class="card card-main">
+
+  <!-- ============ TABS ============ -->
+  <div class="tabs">
+    <button class="tab active" data-tab="single">Single</button>
+    <button class="tab" data-tab="batch">Batch</button>
+  </div>
+
+  <!-- ============ SINGLE ============ -->
+  <div class="tab-panel" id="panel-single">
+    <label class="field-label" for="single-url">Paste a URL</label>
+    <div class="url-row">
+      <input type="url" id="single-url" class="input url-input"
+             placeholder="https://www.youtube.com/watch?v=..."
+             autocomplete="off" />
+      <button class="btn btn-magenta" id="analyze-btn" type="button">Analyze</button>
+    </div>
+
+    <!-- Preview -->
+    <div class="preview hidden" id="preview">
+      <img id="preview-thumb" class="preview-thumb" alt="" />
+      <div class="preview-info">
+        <h3 id="preview-title">—</h3>
+        <p id="preview-meta" class="preview-meta">—</p>
+        <p id="preview-source" class="preview-source">—</p>
+      </div>
+    </div>
+
+    <!-- Options -->
+    <div class="options hidden" id="options">
+      <h4 class="section-title">Choose what to download</h4>
+
+      <div class="options-grid">
+        <div class="field">
+          <label class="field-label">Type</label>
+          <div class="segmented" id="kind-group">
+            <button type="button" class="seg active" data-kind="video">Video</button>
+            <button type="button" class="seg" data-kind="audio">Audio</button>
+            <button type="button" class="seg" data-kind="image">Image</button>
+          </div>
+        </div>
+
+        <div class="field" id="quality-field">
+          <label class="field-label">Quality</label>
+          <select id="quality-select" class="input"></select>
+        </div>
+
+        <div class="field">
+          <label class="field-label">Format</label>
+          <select id="format-select" class="input"></select>
+        </div>
+      </div>
+
+      <button class="btn btn-amber btn-block" id="download-btn" type="button">
+        ⬇ Download
+      </button>
+    </div>
+  </div>
+
+  <!-- ============ BATCH ============ -->
+  <div class="tab-panel hidden" id="panel-batch">
+    <label class="field-label" for="batch-urls">Paste one URL per line</label>
+    <textarea id="batch-urls" class="input textarea"
+              placeholder="https://youtu.be/..."
+              rows="8"></textarea>
+
+    <div class="options-grid" style="margin-top: 16px;">
+      <div class="field">
+        <label class="field-label">Type</label>
+        <div class="segmented" id="batch-kind-group">
+          <button type="button" class="seg active" data-kind="video">Video</button>
+          <button type="button" class="seg" data-kind="audio">Audio</button>
+          <button type="button" class="seg" data-kind="image">Image</button>
+        </div>
+      </div>
+
+      <div class="field" id="batch-quality-field">
+        <label class="field-label">Quality</label>
+        <select id="batch-quality-select" class="input"></select>
+      </div>
+
+      <div class="field">
+        <label class="field-label">Format</label>
+        <select id="batch-format-select" class="input"></select>
+      </div>
+    </div>
+
+    <button class="btn btn-amber btn-block" id="batch-download-btn" type="button">
+      ⬇ Add all to queue
+    </button>
+  </div>
+
+</div>
+
+<!-- ============ ACTIVE JOBS ============ -->
+<section class="section" id="jobs-section">
+  <h2 class="section-heading">Active downloads</h2>
+  <div id="jobs-list" class="jobs-list">
+    <p class="empty">No active downloads. Paste a URL above to begin.</p>
+  </div>
+</section>
+
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='dashboard.js') }}"></script>
+{% endblock %}

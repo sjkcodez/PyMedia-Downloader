@@ -1,0 +1,110 @@
+{% extends "base.html" %}
+{% block title %}History — PyMedia Downloader{% endblock %}
+
+{% block content %}
+<section class="hero">
+  <h1>Download history</h1>
+  <p>Everything you've downloaded so far.</p>
+</section>
+
+<div class="card">
+  <div class="history-toolbar">
+    <div class="segmented" id="history-filter">
+      <button type="button" class="seg active" data-kind="">All</button>
+      <button type="button" class="seg" data-kind="video">Video</button>
+      <button type="button" class="seg" data-kind="audio">Audio</button>
+      <button type="button" class="seg" data-kind="image">Image</button>
+    </div>
+    <button class="btn btn-danger-soft" id="clear-history-btn" type="button">
+      Clear history
+    </button>
+  </div>
+
+  <div id="history-table-wrap">
+    <p class="empty">Loading…</p>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(async function () {
+  const filter = document.getElementById("history-filter");
+  const wrap = document.getElementById("history-table-wrap");
+  const clearBtn = document.getElementById("clear-history-btn");
+  let currentKind = "";
+
+  async function load(kind) {
+    wrap.innerHTML = '<p class="empty">Loading…</p>';
+    const qs = kind ? `?kind=${kind}` : "";
+    const res = await fetch(`/api/history${qs}`);
+    const data = await res.json();
+    const rows = data.history || [];
+    if (!rows.length) {
+      wrap.innerHTML = '<p class="empty">No downloads yet.</p>';
+      return;
+    }
+    wrap.innerHTML = `
+      <table class="table">
+        <thead>
+          <tr>
+            <th>When</th><th>Title</th><th>Type</th>
+            <th>Format</th><th class="num">Size</th><th></th>
+          </tr>
+        </thead>
+        <tbody>
+          ${rows.map(r => `
+            <tr>
+              <td>${new Date(r.ts * 1000).toLocaleString()}</td>
+              <td>${escapeHtml(r.title || "—")}</td>
+              <td>${escapeHtml(r.kind || "")}</td>
+              <td>${escapeHtml(r.format || "")} ${escapeHtml(r.quality || "")}</td>
+              <td class="num">${fmtSize(r.file_size)}</td>
+              <td>
+                ${r.status === "done" && r.file_path
+                  ? `<a class="btn btn-small btn-amber"
+                        href="/download?path=${encodeURIComponent(r.file_path)}">
+                       Download
+                     </a>`
+                  : `<span class="pill-fail">Failed</span>`}
+              </td>
+            </tr>
+          `).join("")}
+        </tbody>
+      </table>
+    `;
+  }
+
+  filter.addEventListener("click", (e) => {
+    const btn = e.target.closest(".seg");
+    if (!btn) return;
+    filter.querySelectorAll(".seg").forEach(b => b.classList.remove("active"));
+    btn.classList.add("active");
+    currentKind = btn.dataset.kind;
+    load(currentKind);
+  });
+
+  clearBtn.addEventListener("click", async () => {
+    if (!confirm("Delete all history entries?\n\nFiles on disk are not affected.")) return;
+    await fetch("/api/history/clear", { method: "POST" });
+    load(currentKind);
+  });
+
+  function fmtSize(n) {
+    n = Number(n || 0);
+    if (!n) return "—";
+    const u = ["B","KB","MB","GB","TB"];
+    let i = 0;
+    while (n >= 1024 && i < u.length - 1) { n /= 1024; i++; }
+    return n.toFixed(1) + " " + u[i];
+  }
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, c => ({
+      "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"
+    }[c]));
+  }
+
+  load("");
+})();
+</script>
+{% endblock %}

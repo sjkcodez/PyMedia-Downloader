@@ -1,0 +1,78 @@
+{% extends "base.html" %}
+{% block title %}Admin — PyMedia Downloader{% endblock %}
+
+{% block content %}
+<section class="hero">
+  <h1>Admin</h1>
+  <p>Usage overview and active downloads.</p>
+</section>
+
+<div class="kpis">
+  <div class="kpi">
+    <div class="kpi-label">Total downloads</div>
+    <div class="kpi-value">{{ stats.total }}</div>
+  </div>
+  <div class="kpi">
+    <div class="kpi-label">Videos</div>
+    <div class="kpi-value">{{ stats.videos }}</div>
+  </div>
+  <div class="kpi">
+    <div class="kpi-label">Audio</div>
+    <div class="kpi-value">{{ stats.audio }}</div>
+  </div>
+  <div class="kpi">
+    <div class="kpi-label">Images</div>
+    <div class="kpi-value">{{ stats.images }}</div>
+  </div>
+  <div class="kpi">
+    <div class="kpi-label">Total size</div>
+    <div class="kpi-value">{{ stats.total_size|human_size }}</div>
+  </div>
+</div>
+
+<div class="card" style="margin-bottom: 24px;">
+  <h2 class="section-heading">Active downloads ({{ active_jobs|length }})</h2>
+  {% if active_jobs %}
+  <table class="table">
+    <thead>
+      <tr><th>Title</th><th>Type</th><th class="num">Progress</th><th>Speed</th></tr>
+    </thead>
+    <tbody>
+      {% for j in active_jobs %}
+      <tr>
+        <td>{{ j.title }}</td>
+        <td>{{ j.kind }}</td>
+        <td class="num">{{ "%.1f"|format(j.percent) }}%</td>
+        <td>{{ j.speed or "—" }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="empty">No active downloads.</p>
+  {% endif %}
+</div>
+
+<div class="card">
+  <h2 class="section-heading">Recent jobs</h2>
+  {% if recent %}
+  <table class="table">
+    <thead>
+      <tr><th>Title</th><th>Type</th><th>Status</th><th class="num">Size</th></tr>
+    </thead>
+    <tbody>
+      {% for j in recent %}
+      <tr>
+        <td>{{ j.title }}</td>
+        <td>{{ j.kind }}</td>
+        <td>{{ j.status }}</td>
+        <td class="num">{{ j.file_size|human_size }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="empty">No jobs yet.</p>
+  {% endif %}
+</div>
+{% endblock %}
