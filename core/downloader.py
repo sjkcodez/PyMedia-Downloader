@@ -1,4 +1,5 @@
 """Download execution with live progress."""
+import re
 import threading
 import time
 import uuid
@@ -13,6 +14,22 @@ from .utils import (
     human_size, url_looks_like_image,
 )
 from . import history
+
+
+# ============================================================
+# ANSI escape-code stripper
+# ============================================================
+# yt-dlp returns strings like "\x1b[0;32m101.79KiB/s\x1b[0m" for speed and
+# "\x1b[0;32m00:32\x1b[0m" for ETA. Strip the color codes so the browser
+# shows plain, readable text.
+_ANSI_RE = re.compile(r'\x1b\[[0-9;]*[A-Za-z]')
+
+
+def _clean_progress_text(s: str) -> str:
+    """Strip ANSI color codes and trim whitespace from a progress string."""
+    if not s:
+        return ""
+    return _ANSI_RE.sub("", s).strip()
 
 
 # ============================================================
@@ -123,8 +140,8 @@ def _make_progress_hook(job_id: str, phase: str = "downloading") -> Callable:
             total = d.get("total_bytes") or d.get("total_bytes_estimate") or 0
             downloaded = d.get("downloaded_bytes") or 0
             percent = (downloaded / total * 100.0) if total else 0.0
-            speed = d.get("_speed_str", "").strip()
-            eta = d.get("_eta_str", "").strip()
+            speed = _clean_progress_text(d.get("_speed_str", ""))
+            eta = _clean_progress_text(d.get("_eta_str", ""))
             _update(
                 job_id,
                 status=phase,
@@ -170,7 +187,7 @@ def _run_ytdlp_job(job_id, url, kind, quality, fmt):
     opts = {
         "outtmpl": outtmpl,
         "progress_hooks": [_make_progress_hook(job_id)],
-        "noplaylist": False,     # allow playlists
+        "noplaylist": False,
         "retries": 10,
         "fragment_retries": 10,
         "continuedl": True,

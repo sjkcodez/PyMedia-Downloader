@@ -18,7 +18,7 @@
     <span style="font-size: 12.5px; color: var(--muted);">
       Signed in as <strong>{{ admin_user }}</strong>
     </span>
-    <a href="/admin/logout" class="btn-logout">Sign out</a>
+    <a href="/mtawala/logout" class="btn-logout">Sign out</a>
   </span>
 </div>
 
@@ -324,7 +324,7 @@
 <!-- ============ DANGER ZONE ============ -->
 <div class="card danger-card">
   <h2 class="section-heading" style="color: var(--error);">⚠️ Danger zone</h2>
-  <form method="POST" action="/admin/analytics/reset"
+  <form method="POST" action="/mtawala/analytics/reset"
         onsubmit="return confirm('Reset all visit analytics?');">
     <button type="submit" class="btn btn-danger-soft">
       🗑 Reset visit analytics

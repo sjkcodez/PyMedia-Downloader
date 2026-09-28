@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""PyMedia Downloader — Web GUI server with admin login, analytics, and auto-cleanup.
+"""PyMedia Downloader — Web GUI server.
+
+Admin lives at /mtawala (Swahili: administrator). The legacy /admin path
+is NOT a valid route — it returns 404 so scanners and bots find nothing.
 
 Cleanup:
     A background daemon thread wakes every 30 minutes and deletes files in
     downloads/videos/, downloads/audio/, and downloads/images/ that are
-    older than 30 minutes. This keeps the disk from filling up as users
-    download and auto-save files to their devices.
+    older than 30 minutes.
 """
 import os
 import io
@@ -59,14 +61,13 @@ app.config.update(
 
 
 # ============================================================
-# Cleanup thread — deletes old files from downloads/
+# Cleanup thread
 # ============================================================
-CLEANUP_INTERVAL_SECONDS = 30 * 60    # run every 30 minutes
-CLEANUP_MAX_AGE_SECONDS  = 30 * 60    # delete files older than 30 minutes
+CLEANUP_INTERVAL_SECONDS = 30 * 60
+CLEANUP_MAX_AGE_SECONDS  = 30 * 60
 
 
 def _delete_old_downloads():
-    """Delete files in downloads/{videos,audio,images}/ older than the cutoff."""
     cutoff = time.time() - CLEANUP_MAX_AGE_SECONDS
     deleted = 0
     for folder in (VIDEOS_DIR, AUDIO_DIR, IMAGES_DIR):
@@ -83,7 +84,7 @@ def _delete_old_downloads():
 
 
 def cleanup_loop():
-    time.sleep(10)   # brief startup grace
+    time.sleep(10)
     while True:
         try:
             n = _delete_old_downloads()
@@ -100,7 +101,6 @@ def start_cleanup_thread():
     return t
 
 
-# Start at import time so it runs under Gunicorn too (not only __main__)
 start_cleanup_thread()
 
 
@@ -123,8 +123,8 @@ def requires_admin(f):
             flash("Admin access is disabled on this server.", "error")
             return redirect(url_for("index"))
         if not _is_admin_logged_in():
-            session["next_url"] = request.full_path
-            return redirect(url_for("admin_login"))
+            session["next_url"] = url_for("mtawala_dashboard")
+            return redirect(url_for("mtawala_login"))
         return f(*args, **kwargs)
     return wrapper
 
@@ -191,7 +191,7 @@ def _inject_globals():
 # ------------------------------------------------------------------
 @app.before_request
 def _analytics_before():
-    skip = ("/static/", "/admin", "/health", "/api/")
+    skip = ("/static/", "/mtawala", "/admin", "/health", "/api/")
     if request.path.startswith(skip):
         return
 
@@ -226,7 +226,7 @@ def _analytics_after(response):
 
 
 # ------------------------------------------------------------------
-# Pages
+# Public pages
 # ------------------------------------------------------------------
 @app.route("/")
 def index():
@@ -234,6 +234,7 @@ def index():
 
 
 @app.route("/history")
+@requires_admin
 def history_page():
     return render_template("history.html", active="history")
 
@@ -247,22 +248,22 @@ def settings_page():
     )
 
 
-# ------------------------------------------------------------------
-# ADMIN — login / logout
-# ------------------------------------------------------------------
-@app.route("/admin/login", methods=["GET"])
-def admin_login():
+# ============================================================
+# ADMIN — /mtawala login / logout
+# ============================================================
+@app.route("/mtawala", methods=["GET"])
+def mtawala_login():
     if not ADMIN_ENABLED:
         return render_template("admin_login.html", admin_disabled=True, error=None)
     if _is_admin_logged_in():
-        return redirect(url_for("admin_page"))
+        return redirect(url_for("mtawala_dashboard"))
     return render_template("admin_login.html", admin_disabled=False, error=None)
 
 
-@app.route("/admin/login", methods=["POST"])
-def admin_login_submit():
+@app.route("/mtawala/login", methods=["POST"])
+def mtawala_login_submit():
     if not ADMIN_ENABLED:
-        return redirect(url_for("admin_login"))
+        return redirect(url_for("mtawala_login"))
 
     ip = _client_ip()
     if not _login_rate_ok(ip):
@@ -283,8 +284,10 @@ def admin_login_submit():
         session.permanent = True
         session["admin_logged_in"] = True
         session["admin_user"] = username
-        nxt = session.pop("next_url", None) or url_for("admin_page")
-        return redirect(nxt)
+
+        # Always go to the dashboard — never chase a saved path.
+        session.pop("next_url", None)
+        return redirect(url_for("mtawala_dashboard"))
 
     _login_rate_record(ip)
     return render_template(
@@ -294,20 +297,20 @@ def admin_login_submit():
     ), 401
 
 
-@app.route("/admin/logout", methods=["GET", "POST"])
-def admin_logout():
+@app.route("/mtawala/logout", methods=["GET", "POST"])
+def mtawala_logout():
     session.pop("admin_logged_in", None)
     session.pop("admin_user", None)
     flash("Signed out.", "success")
     return redirect(url_for("index"))
 
 
-# ------------------------------------------------------------------
+# ============================================================
 # ADMIN — dashboard (protected)
-# ------------------------------------------------------------------
-@app.route("/admin")
+# ============================================================
+@app.route("/mtawala/dashboard")
 @requires_admin
-def admin_page():
+def mtawala_dashboard():
     try:
         days = float(request.args.get("days", "7"))
     except Exception:
@@ -338,15 +341,26 @@ def admin_page():
     )
 
 
-@app.route("/admin/analytics/reset", methods=["POST"])
+@app.route("/mtawala/analytics/reset", methods=["POST"])
 @requires_admin
-def admin_analytics_reset():
+def mtawala_analytics_reset():
     try:
         analytics.reset_all()
         flash("Visit analytics reset.", "success")
     except Exception as e:
         flash(f"Reset failed: {e}", "error")
-    return redirect(url_for("admin_page"))
+    return redirect(url_for("mtawala_dashboard"))
+
+
+# ============================================================
+# The legacy /admin path is dead — returns 404
+# ============================================================
+@app.route("/admin", defaults={"subpath": ""},
+           methods=["GET", "POST", "PUT", "DELETE"])
+@app.route("/admin/<path:subpath>",
+           methods=["GET", "POST", "PUT", "DELETE"])
+def _admin_is_gone(subpath):
+    abort(404)
 
 
 # ------------------------------------------------------------------
@@ -358,13 +372,10 @@ def download_file():
 
 
 # ============================================================
-# File existence check
-#   Used by the front-end before triggering the auto-save,
-#   to avoid the "download.htm" trap when a file has expired.
+# File existence check (used by the front-end auto-save)
 # ============================================================
 @app.route("/api/file-exists")
 def api_file_exists():
-    """Return {"exists": bool} for a given downloads/ path."""
     rel = (request.args.get("path") or "").strip()
     if not rel:
         return jsonify({"exists": False})
@@ -377,9 +388,7 @@ def api_file_exists():
 
 
 # ============================================================
-# Direct streaming proxy
-#   Pipes bytes straight through — nothing saved on disk.
-#   Used for direct file URLs (MP4, MP3, images).
+# Direct streaming proxy (bypasses disk)
 # ============================================================
 @app.route("/api/stream")
 def api_stream():
@@ -449,7 +458,7 @@ def _guess_kind(name: str) -> str:
 
 
 # ------------------------------------------------------------------
-# APIs
+# Public APIs
 # ------------------------------------------------------------------
 @app.route("/api/analyze", methods=["POST"])
 def api_analyze():
@@ -471,24 +480,30 @@ def api_jobs():
     return handlers.api_jobs()
 
 
+@app.route("/api/config", methods=["GET", "POST"])
+def api_config():
+    return handlers.api_config()
+
+
+# ============================================================
+# History APIs — admin only (since the page is admin-only)
+# ============================================================
 @app.route("/api/history", methods=["GET"])
+@requires_admin
 def api_history():
     return handlers.api_history()
 
 
 @app.route("/api/history/stats", methods=["GET"])
+@requires_admin
 def api_history_stats():
     return handlers.api_history_stats()
 
 
 @app.route("/api/history/clear", methods=["POST"])
+@requires_admin
 def api_history_clear():
     return handlers.api_history_clear()
-
-
-@app.route("/api/config", methods=["GET", "POST"])
-def api_config():
-    return handlers.api_config()
 
 
 @app.route("/health")
@@ -518,7 +533,7 @@ if __name__ == "__main__":
     print("=" * 60)
     print("  PyMedia Downloader — Web GUI")
     print(f"  Open:      http://127.0.0.1:{port}")
-    print(f"  Admin:     http://127.0.0.1:{port}/admin")
+    print(f"  Admin:     http://127.0.0.1:{port}/mtawala")
     print(f"  ffmpeg:    {'available' if ffmpeg_available() else 'MISSING'}")
     print(f"  Admin pw:  {'set' if ADMIN_ENABLED else 'NOT SET (admin disabled)'}")
     print(f"  Cleanup:   every {CLEANUP_INTERVAL_SECONDS // 60} min "
