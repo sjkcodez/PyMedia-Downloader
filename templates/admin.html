@@ -7,7 +7,28 @@
   <p>Usage overview and active downloads.</p>
 </section>
 
+<!-- ============ TOOLBAR ============ -->
+<div class="toolbar" style="margin-bottom: 24px;">
+  <a class="range-btn {% if days == 1 %}active{% endif %}" href="?days=1">Last 24h</a>
+  <a class="range-btn {% if days == 7 %}active{% endif %}" href="?days=7">Last 7 days</a>
+  <a class="range-btn {% if days == 30 %}active{% endif %}" href="?days=30">Last 30 days</a>
+  <a class="range-btn {% if days == 0 %}active{% endif %}" href="?days=0">All time</a>
+
+  <span style="margin-left: auto; display: flex; gap: 10px; align-items: center;">
+    <span style="font-size: 12.5px; color: var(--muted);">
+      Signed in as <strong>{{ admin_user }}</strong>
+    </span>
+    <a href="/admin/logout" class="btn-logout">Sign out</a>
+  </span>
+</div>
+
+<!-- ============ KPIs ============ -->
 <div class="kpis">
+  <div class="kpi">
+    <div class="kpi-label">Site visits</div>
+    <div class="kpi-value">{{ visits.total }}</div>
+    <div class="kpi-sub">{{ visits.unique }} unique</div>
+  </div>
   <div class="kpi">
     <div class="kpi-label">Total downloads</div>
     <div class="kpi-value">{{ stats.total }}</div>
@@ -30,13 +51,260 @@
   </div>
 </div>
 
+<!-- ============ LINE GRAPH: DAILY VISITS ============ -->
+<div class="card" style="margin-bottom: 24px;">
+  <h2 class="section-heading">Daily visits (last {{ visits.daily|length }} days)</h2>
+
+  {% if visits.daily %}
+    {% set n = visits.daily|length %}
+    {% set maxv = visits.daily|map(attribute='count')|max or 1 %}
+    {% set chart_w = 900 %}
+    {% set chart_h = 280 %}
+    {% set pad_l = 48 %}
+    {% set pad_r = 24 %}
+    {% set pad_t = 28 %}
+    {% set pad_b = 48 %}
+    {% set inner_w = chart_w - pad_l - pad_r %}
+    {% set inner_h = chart_h - pad_t - pad_b %}
+    {% set bottom_y = pad_t + inner_h %}
+
+    {% set ns = namespace(points='', dots=[]) %}
+    {% for d in visits.daily %}
+      {% set i = loop.index0 %}
+      {% if n == 1 %}
+        {% set x = pad_l + (inner_w / 2) %}
+      {% else %}
+        {% set x = pad_l + (i * inner_w / (n - 1)) %}
+      {% endif %}
+      {% set y = pad_t + inner_h - (d.count / maxv * inner_h) %}
+      {% set ns.points = ns.points ~ (x|round(2)) ~ ',' ~ (y|round(2)) %}
+      {% if not loop.last %}{% set ns.points = ns.points ~ ' ' %}{% endif %}
+      {% set ns.dots = ns.dots + [{'x': x, 'y': y, 'label': d.label, 'count': d.count}] %}
+    {% endfor %}
+
+    {% set first = ns.dots[0] %}
+    {% set last = ns.dots[-1] %}
+    {% set area_d = 'M ' ~ (first.x|round(2)) ~ ',' ~ bottom_y
+                 ~ ' L ' ~ (first.x|round(2)) ~ ',' ~ (first.y|round(2)) %}
+    {% for dot in ns.dots[1:] %}
+      {% set area_d = area_d ~ ' L ' ~ (dot.x|round(2)) ~ ',' ~ (dot.y|round(2)) %}
+    {% endfor %}
+    {% set area_d = area_d ~ ' L ' ~ (last.x|round(2)) ~ ',' ~ bottom_y ~ ' Z' %}
+
+    <div class="chart-wrap">
+      <svg viewBox="0 0 {{ chart_w }} {{ chart_h }}"
+           preserveAspectRatio="xMidYMid meet"
+           class="line-chart">
+        <defs>
+          <linearGradient id="visitAreaGrad" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%"   stop-color="#D946EF" stop-opacity="0.32"/>
+            <stop offset="100%" stop-color="#D946EF" stop-opacity="0"/>
+          </linearGradient>
+        </defs>
+
+        {% for g in range(5) %}
+          {% set frac = g / 4 %}
+          {% set y = pad_t + inner_h * frac %}
+          {% set val = (maxv * (1 - frac))|round(0)|int %}
+          <line class="grid-line"
+                x1="{{ pad_l }}" y1="{{ y|round(2) }}"
+                x2="{{ chart_w - pad_r }}" y2="{{ y|round(2) }}" />
+          <text class="axis-label"
+                x="{{ pad_l - 10 }}" y="{{ (y + 4)|round(2) }}"
+                text-anchor="end">{{ val }}</text>
+        {% endfor %}
+
+        <line class="axis-line"
+              x1="{{ pad_l }}" y1="{{ bottom_y }}"
+              x2="{{ chart_w - pad_r }}" y2="{{ bottom_y }}" />
+
+        {% for dot in ns.dots %}
+          <text class="axis-label"
+                x="{{ dot.x|round(2) }}"
+                y="{{ chart_h - 14 }}"
+                text-anchor="middle">{{ dot.label }}</text>
+        {% endfor %}
+
+        <path class="area-fill" d="{{ area_d }}"
+              style="fill: url(#visitAreaGrad);" />
+        <polyline class="line-path" points="{{ ns.points }}"
+                  style="stroke: var(--magenta);" />
+
+        {% for dot in ns.dots %}
+          <g>
+            <circle class="dot-hit"
+                    cx="{{ dot.x|round(2) }}"
+                    cy="{{ dot.y|round(2) }}"
+                    r="10">
+              <title>{{ dot.label }} — {{ dot.count }} visit(s)</title>
+            </circle>
+            <circle class="dot-outer"
+                    cx="{{ dot.x|round(2) }}"
+                    cy="{{ dot.y|round(2) }}"
+                    r="4.5"
+                    style="stroke: var(--magenta);" />
+            <text class="dot-label"
+                  x="{{ dot.x|round(2) }}"
+                  y="{{ (dot.y - 12)|round(2) }}"
+                  text-anchor="middle">{{ dot.count }}</text>
+          </g>
+        {% endfor %}
+      </svg>
+    </div>
+  {% else %}
+    <p class="empty">No visits recorded yet.</p>
+  {% endif %}
+</div>
+
+<!-- ============ LINE GRAPH: DAILY DOWNLOADS ============ -->
+<div class="card" style="margin-bottom: 24px;">
+  <h2 class="section-heading">Daily downloads (last {{ daily_downloads|length }} days)</h2>
+
+  {% if daily_downloads %}
+    {% set n2 = daily_downloads|length %}
+    {% set maxv2 = daily_downloads|map(attribute='count')|max or 1 %}
+    {% set chart_w = 900 %}
+    {% set chart_h = 280 %}
+    {% set pad_l = 48 %}
+    {% set pad_r = 24 %}
+    {% set pad_t = 28 %}
+    {% set pad_b = 48 %}
+    {% set inner_w = chart_w - pad_l - pad_r %}
+    {% set inner_h = chart_h - pad_t - pad_b %}
+    {% set bottom_y = pad_t + inner_h %}
+
+    {% set ns2 = namespace(points='', dots=[]) %}
+    {% for d in daily_downloads %}
+      {% set i = loop.index0 %}
+      {% if n2 == 1 %}
+        {% set x = pad_l + (inner_w / 2) %}
+      {% else %}
+        {% set x = pad_l + (i * inner_w / (n2 - 1)) %}
+      {% endif %}
+      {% set y = pad_t + inner_h - (d.count / maxv2 * inner_h) %}
+      {% set ns2.points = ns2.points ~ (x|round(2)) ~ ',' ~ (y|round(2)) %}
+      {% if not loop.last %}{% set ns2.points = ns2.points ~ ' ' %}{% endif %}
+      {% set ns2.dots = ns2.dots + [{'x': x, 'y': y, 'label': d.label, 'count': d.count}] %}
+    {% endfor %}
+
+    {% set first2 = ns2.dots[0] %}
+    {% set last2 = ns2.dots[-1] %}
+    {% set area_d2 = 'M ' ~ (first2.x|round(2)) ~ ',' ~ bottom_y
+                  ~ ' L ' ~ (first2.x|round(2)) ~ ',' ~ (first2.y|round(2)) %}
+    {% for dot in ns2.dots[1:] %}
+      {% set area_d2 = area_d2 ~ ' L ' ~ (dot.x|round(2)) ~ ',' ~ (dot.y|round(2)) %}
+    {% endfor %}
+    {% set area_d2 = area_d2 ~ ' L ' ~ (last2.x|round(2)) ~ ',' ~ bottom_y ~ ' Z' %}
+
+    <div class="chart-wrap">
+      <svg viewBox="0 0 {{ chart_w }} {{ chart_h }}"
+           preserveAspectRatio="xMidYMid meet"
+           class="line-chart">
+        <defs>
+          <linearGradient id="dlAreaGrad" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%"   stop-color="#F59E0B" stop-opacity="0.32"/>
+            <stop offset="100%" stop-color="#F59E0B" stop-opacity="0"/>
+          </linearGradient>
+        </defs>
+
+        {% for g in range(5) %}
+          {% set frac = g / 4 %}
+          {% set y = pad_t + inner_h * frac %}
+          {% set val = (maxv2 * (1 - frac))|round(0)|int %}
+          <line class="grid-line"
+                x1="{{ pad_l }}" y1="{{ y|round(2) }}"
+                x2="{{ chart_w - pad_r }}" y2="{{ y|round(2) }}" />
+          <text class="axis-label"
+                x="{{ pad_l - 10 }}" y="{{ (y + 4)|round(2) }}"
+                text-anchor="end">{{ val }}</text>
+        {% endfor %}
+
+        <line class="axis-line"
+              x1="{{ pad_l }}" y1="{{ bottom_y }}"
+              x2="{{ chart_w - pad_r }}" y2="{{ bottom_y }}" />
+
+        {% for dot in ns2.dots %}
+          <text class="axis-label"
+                x="{{ dot.x|round(2) }}"
+                y="{{ chart_h - 14 }}"
+                text-anchor="middle">{{ dot.label }}</text>
+        {% endfor %}
+
+        <path class="area-fill" d="{{ area_d2 }}"
+              style="fill: url(#dlAreaGrad);" />
+        <polyline class="line-path" points="{{ ns2.points }}"
+                  style="stroke: var(--amber);" />
+
+        {% for dot in ns2.dots %}
+          <g>
+            <circle class="dot-hit"
+                    cx="{{ dot.x|round(2) }}"
+                    cy="{{ dot.y|round(2) }}"
+                    r="10">
+              <title>{{ dot.label }} — {{ dot.count }} download(s)</title>
+            </circle>
+            <circle class="dot-outer"
+                    cx="{{ dot.x|round(2) }}"
+                    cy="{{ dot.y|round(2) }}"
+                    r="4.5"
+                    style="stroke: var(--amber);" />
+            <text class="dot-label"
+                  x="{{ dot.x|round(2) }}"
+                  y="{{ (dot.y - 12)|round(2) }}"
+                  text-anchor="middle">{{ dot.count }}</text>
+          </g>
+        {% endfor %}
+      </svg>
+    </div>
+  {% else %}
+    <p class="empty">No downloads recorded yet.</p>
+  {% endif %}
+</div>
+
+<!-- ============ DEVICES + BROWSERS ============ -->
+<div class="grid2">
+  <div class="card">
+    <h2 class="section-heading">Devices</h2>
+    {% if visits.devices %}
+    <table class="table">
+      <thead><tr><th>Device</th><th class="num">Visits</th><th class="num">Share</th></tr></thead>
+      <tbody>
+        {% for d in visits.devices %}
+        <tr>
+          <td style="text-transform: capitalize;">{{ d.name }}</td>
+          <td class="num">{{ d.count }}</td>
+          <td class="num">{{ "%.0f"|format(d.pct) }}%</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <p class="empty">No data yet.</p>
+    {% endif %}
+  </div>
+
+  <div class="card">
+    <h2 class="section-heading">Browsers</h2>
+    {% if visits.browsers %}
+    <table class="table">
+      <tbody>
+        {% for b in visits.browsers %}
+        <tr><td>{{ b.name }}</td><td class="num">{{ b.count }}</td><td class="num">{{ "%.0f"|format(b.pct) }}%</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <p class="empty">No data yet.</p>
+    {% endif %}
+  </div>
+</div>
+
+<!-- ============ ACTIVE JOBS ============ -->
 <div class="card" style="margin-bottom: 24px;">
   <h2 class="section-heading">Active downloads ({{ active_jobs|length }})</h2>
   {% if active_jobs %}
   <table class="table">
-    <thead>
-      <tr><th>Title</th><th>Type</th><th class="num">Progress</th><th>Speed</th></tr>
-    </thead>
+    <thead><tr><th>Title</th><th>Type</th><th class="num">Progress</th><th>Speed</th></tr></thead>
     <tbody>
       {% for j in active_jobs %}
       <tr>
@@ -53,26 +321,15 @@
   {% endif %}
 </div>
 
-<div class="card">
-  <h2 class="section-heading">Recent jobs</h2>
-  {% if recent %}
-  <table class="table">
-    <thead>
-      <tr><th>Title</th><th>Type</th><th>Status</th><th class="num">Size</th></tr>
-    </thead>
-    <tbody>
-      {% for j in recent %}
-      <tr>
-        <td>{{ j.title }}</td>
-        <td>{{ j.kind }}</td>
-        <td>{{ j.status }}</td>
-        <td class="num">{{ j.file_size|human_size }}</td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
-  {% else %}
-  <p class="empty">No jobs yet.</p>
-  {% endif %}
+<!-- ============ DANGER ZONE ============ -->
+<div class="card danger-card">
+  <h2 class="section-heading" style="color: var(--error);">⚠️ Danger zone</h2>
+  <form method="POST" action="/admin/analytics/reset"
+        onsubmit="return confirm('Reset all visit analytics?');">
+    <button type="submit" class="btn btn-danger-soft">
+      🗑 Reset visit analytics
+    </button>
+  </form>
 </div>
+
 {% endblock %}

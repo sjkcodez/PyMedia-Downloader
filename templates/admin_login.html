@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Admin login — PyMedia Downloader</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}" />
+  <script>
+    (function () {
+      try {
+        var t = localStorage.getItem("pmd-theme") || "light";
+        document.documentElement.setAttribute("data-theme", t);
+      } catch (e) {
+        document.documentElement.setAttribute("data-theme", "light");
+      }
+    })();
+  </script>
+</head>
+<body>
+
+  <div class="login-page">
+    <div class="login-card">
+
+      <a href="/" class="login-brand">
+        <div class="login-brand-mark">▶</div>
+        <div class="login-brand-text">
+          <span class="login-brand-name">PyMedia Downloader</span>
+          <span class="login-brand-sub">Administrator access</span>
+        </div>
+      </a>
+
+      {% if admin_disabled %}
+        <div class="login-disabled">
+          <div class="login-disabled-icon">🔒</div>
+          <h2>Admin access is disabled</h2>
+          <p>
+            Set the <code>PMD_ADMIN_PASS</code> environment variable to enable
+            the admin dashboard.
+          </p>
+          <a href="/" class="btn btn-amber" style="margin-top: 16px;">
+            ← Return to app
+          </a>
+        </div>
+      {% else %}
+
+        <h1 class="login-title">Sign in</h1>
+        <p class="login-sub">Enter your administrator credentials to continue.</p>
+
+        {% if error %}
+          <div class="login-flash-error">{{ error }}</div>
+        {% endif %}
+
+        <form method="POST" action="/admin/login" class="login-form">
+          <div class="field">
+            <label class="field-label" for="username">Username</label>
+            <input type="text" id="username" name="username"
+                   class="input" placeholder="admin"
+                   autocomplete="username" autofocus required />
+          </div>
+
+          <div class="field">
+            <label class="field-label" for="password">Password</label>
+            <input type="password" id="password" name="password"
+                   class="input" placeholder="••••••••"
+                   autocomplete="current-password" required />
+          </div>
+
+          <button type="submit" class="btn btn-amber btn-block">
+            Sign in →
+          </button>
+        </form>
+
+        <div class="login-footer">
+          <a href="/" class="login-back">← Return to app</a>
+        </div>
+
+      {% endif %}
+    </div>
+  </div>
+
+</body>
+</html>

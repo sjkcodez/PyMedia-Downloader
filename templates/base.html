@@ -28,12 +28,14 @@
         </div>
       </a>
 
-      <nav class="topbar-nav">
-        <a href="/" class="nav-link {% if active=='home' %}active{% endif %}">Home</a>
-        <a href="/history" class="nav-link {% if active=='history' %}active{% endif %}">History</a>
-        <a href="/settings" class="nav-link {% if active=='settings' %}active{% endif %}">Settings</a>
-        <a href="/admin" class="nav-link {% if active=='admin' %}active{% endif %}">Admin</a>
-      </nav>
+	<nav class="topbar-nav">
+ 		<a href="/" class="nav-link {% if active=='home' %}active{% endif %}">Home</a>
+ 	 	<a href="/history" class="nav-link {% if active=='history' %}active{% endif %}">History</a>
+  		<a href="/settings" class="nav-link {% if active=='settings' %}active{% endif %}">Settings</a>
+  		{% if admin_logged_in %}
+ 		 <a href="/admin" class="nav-link {% if active=='admin' %}active{% endif %}">Admin</a>
+  		{% endif %}
+	</nav>
 
       <div class="topbar-right">
         <button class="theme-toggle" title="Switch theme" type="button"></button>
