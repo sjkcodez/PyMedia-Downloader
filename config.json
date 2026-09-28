@@ -1,9 +1,0 @@
-{
-  "default_video_quality": "1080p",
-  "default_audio_bitrate": "192",
-  "default_video_format": "mp4",
-  "default_audio_format": "mp3",
-  "default_image_quality": "original",
-  "max_concurrent_downloads": 1,
-  "theme": "light"
-}
